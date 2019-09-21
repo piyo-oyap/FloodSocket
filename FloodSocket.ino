@@ -8,7 +8,7 @@
 #define buzz 13
 
 #define debugRelay
-//#define enSMS
+#define enSMS
 
 RF24 radio(7, 8); // CE, CSN
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -19,7 +19,7 @@ struct LCD{
 } lcdDisplay;
 
 
-bool tpin = true, livePower = true;
+bool tpin1 = false, tpin2 = false, livePower = true, newSMS = false;
 int distance = 0, compensate = EEPROM.read(1) + EEPROM.read(2), wLevel = 0, radioConnection = 10, freq;
 byte power_int = EEPROM.read(0), alert = 0, socket1 = 10, socket2  = 12, prevAlert = 0;
 const byte address[6] = "00001";
@@ -61,6 +61,7 @@ void setup() {
   delay(1000);
   beep(1, 200, 100);
   beep(1, 100, 0);
+  send_msg("Flood detection started.", number);
 
 }
 
@@ -72,16 +73,17 @@ void loop() {
   powerDetection();
   lcdPrint();
   if(livePower){
-    digitalWrite(10, !tpin);
-    digitalWrite(12, !tpin);
+    digitalWrite(socket1, !tpin1);
+    digitalWrite(socket2, !tpin2);
   }
   
 #ifdef debugRelay
   if (Serial.available()){
     if(Serial.read()=='a') {
-      tpin = true;
-      digitalWrite(10, !tpin);
-      digitalWrite(12, !tpin);
+      tpin1 = true;
+      tpin2 = true;
+      digitalWrite(socket1, !tpin1);
+      digitalWrite(socket2, !tpin2);
     }
     if(Serial.read()=='s'){
       beep(3, 75, 50);
@@ -93,8 +95,8 @@ void loop() {
 }
 
 void recv_msg() {
-  sim.println("at+cmgf=1");
-  sim.print("AT+CNMI=2,2,0,0,0\r");
+//  sim.println("at+cmgf=1");
+//  sim.print("AT+CNMI=2,2,0,0,0\r");
   delay(100);
   if (sim.available()) {
     textMessage = sim.readString();
@@ -110,33 +112,42 @@ void recv_msg() {
       beep(3, 75, 50);
       beep(2, 250, 50);
       beep(3, 75, 50);
+      newSMS = true;
       sim.print("AT+CMGD=1,3\r"); //deletes recv read sms
     }
     if (textMessage.indexOf("off1") > 0) {
-      digitalWrite(socket1, HIGH);
-      lcd.setCursor(0, 0);
-      lcd.print("  Socket 1 OFF  ");
+      tpin1 = false;
+      sprintf(str,"  Socket 1 OFF  ");
 #ifdef debugSMS
       Serial.println("Socket 1 turned OFF");
 #endif
-    } else if (textMessage.indexOf("on1") > 0 && alert != 3) {
-      digitalWrite(socket1, LOW);
-      lcd.setCursor(0, 0);
-      lcd.print("  Socket 1 ON   ");
+    } else if (textMessage.indexOf("on1") > 0) {
+      if(alert == 3){
+        send_msg("Can't turn on socket 1. Water level is at RED status.", number);
+      }else if(!livePower){
+        send_msg("Can't turn on socket 1. There's a power interruption, this is to protect appliances from voltage surge.", number);
+      }else{
+        tpin1 = true;
+        sprintf(str,"  Socket 1 ON   ");
+      }
 #ifdef debugSMS
       Serial.println("Socket 1 turned ON");
 #endif
     } else if (textMessage.indexOf("off2") > 0) {
-      digitalWrite(socket2, HIGH);
-      lcd.setCursor(0, 0);
-      lcd.print("  Socket 2 OFF  ");
+      tpin2 = false;
+      sprintf(str,"  Socket 2 OFF  ");
 #ifdef debugSMS
       Serial.println("Socket 2 turned OFF");
 #endif
-    } else if (textMessage.indexOf("on2") > 0 && alert != 3) {
-      digitalWrite(socket2, LOW);
-      lcd.setCursor(0, 0);
-      lcd.print("  Socket 2 ON   ");
+    } else if (textMessage.indexOf("on2") > 0) {
+      if(alert == 3){
+        send_msg("Can't turn on socket 2. Water level is at RED status.", number);
+      }else if(!livePower){
+        send_msg("Can't turn on socket 2. There's a power interruption, this is to protect appliances from voltage surge.", number);
+      }else{
+        tpin2 = true;
+        sprintf(str,"  Socket 2 ON   ");
+      }
 #ifdef debugSMS
       Serial.println("Socket 2 turned ON");
 #endif
@@ -146,21 +157,19 @@ void recv_msg() {
       } else {
         send_msg("Power interruption still on going", number);
       }
+      sprintf(str, " Power Inquiry. ");
 #ifdef debugSMS
       Serial.println("Power Inquiry");
 #endif
     } else if (textMessage.indexOf("calibrate") > 0) {
       calibrate();
-      lcd.setCursor(0, 0);
-      lcd.print("Calibrating.....");
-      delay(3000);
+      sprintf(str,"Calibrating.....");
 #ifdef debugSMS
       Serial.println("Calibrating ultrasonic sensor");
 #endif
     }else if (textMessage.indexOf("reset") > 0){
       resetCounter();
-      lcd.setCursor(0, 0);
-      lcd.print("Resetting.......");
+      sprintf(str,"Resetting.......");
     }
   }
 
@@ -199,35 +208,25 @@ void calibrate() {
 }
 
 void lcdPrint() {
-  if(lcdDisplay.counter>0){
-    lcdDisplay.counter--;
-  }else{
-    if(livePower){
-      lcdDisplay.counter = 30;
-    }else{
-      lcdDisplay.counter = 3;
-    }
-    lcdDisplay.mode = !lcdDisplay.mode;
-  }
   lcd.setCursor(0, 0);
   if(radioConnection<1){
     lcd.print("Radio connection");
     lcd.setCursor(0,1);
     lcd.print("Rx error . . . .");
   }else{
-    if(lcdDisplay.mode){
-      
-    }
-    if (lcdDisplay.mode || livePower) {
-      sprintf(str, "Water Level  %3d", wLevel);
-      sprintf(str2, "Interruption %3d", int(power_int));
-    } else {
-      sprintf(str, "    No Power    ");
-      if(livePower) sprintf(str2, "Frequency: %5d", freq);
+    if(livePower){
+      if(!newSMS) sprintf(str, "Water Level  %3d", wLevel);
+      sprintf(str2, "Frequency: %2d  ", freq);
+    }else{
+      if(!newSMS) sprintf(str, "    No Power    ", wLevel);
+      sprintf(str2, "Power Int %3d   ", int(power_int));
     }
     lcd.print(str);
     lcd.setCursor(0, 1);
     lcd.print(str2);
+    if(newSMS){
+      delay(2000);
+    }
   }
 }
 
@@ -237,8 +236,6 @@ void powerInterruption() {
   }
   EEPROM.update(0, power_int += 1);
   delay(100);
-  digitalWrite(10, HIGH);
-  digitalWrite(12, HIGH);
 }
 
 void resetCounter() {
@@ -274,13 +271,15 @@ void action() {
   }
   bool smsBool;
   if(prevAlert!= alert){
+    prevAlert = alert;
     smsBool = true;
   }else{
     smsBool = false;
   }
   
   if (alert == 3) {
-  tpin = false;
+  tpin1 = false;
+  tpin2 = false;
   if(smsBool) send_msg("Water level is at RED status. Sockets are turned off.", number);
   } else if (alert == 2) {
     if(smsBool) send_msg("Water Level Orange Warning", number);
@@ -307,19 +306,21 @@ void powerDetection() {
       Serial.println("Power Interruption Detected");
       send_msg("Power Interruption Detected", number);
       powerInterruption();
-      beep(3, 100, 50);
+      beep(5, 100, 50);
       digitalWrite(10, HIGH);
       digitalWrite(12, HIGH);
     } else {
-      Serial.println("Power Resumed");
+      digitalWrite(10, HIGH);
+      digitalWrite(12, HIGH);
+      Serial.println(" Power Resumed ");
       send_msg("Power Resumed", number);
-      sprintf(str, "Power Resumed");
+      sprintf(str, " Power Resumed. ");
       lcd.setCursor(0, 0);
       lcd.print(str);
       beep(1, 1000, 10);
       delay(5000);
-      digitalWrite(10, !tpin);
-      digitalWrite(12, !tpin);
+      digitalWrite(socket1, !tpin1);
+      digitalWrite(socket2, !tpin2);
     }
   }
 
