@@ -18,13 +18,14 @@ struct LCD{
   bool mode = true;
 } lcdDisplay;
 
-
+float freq;
+unsigned long prevSMS = millis();
 bool tpin1 = false, tpin2 = false, livePower = true, newSMS = false;
-int distance = 0, compensate = EEPROM.read(1) + EEPROM.read(2), wLevel = 0, radioConnection = 10, freq;
+int distance = 0, compensate = EEPROM.read(1) + EEPROM.read(2), wLevel = 0, radioConnection = 10;
 byte power_int = EEPROM.read(0), alert = 0, socket1 = 10, socket2  = 12, prevAlert = 0;
 const byte address[6] = "00001";
 bool power = true, prev_state = true;
-String textMessage, number = "+639503610262";
+String textMessage, number = "+639503610262", freqString;
 char str[32],str2[32];
 
 
@@ -95,7 +96,7 @@ void loop() {
 }
 
 void recv_msg() {
-//  sim.println("at+cmgf=1");
+//  sim.println("at+cmgf?");
 //  sim.print("AT+CNMI=2,2,0,0,0\r");
   delay(100);
   if (sim.available()) {
@@ -113,6 +114,7 @@ void recv_msg() {
       beep(2, 250, 50);
       beep(3, 75, 50);
       newSMS = true;
+      prevSMS = millis();
       sim.print("AT+CMGD=1,3\r"); //deletes recv read sms
     }
     if (textMessage.indexOf("off1") > 0) {
@@ -153,9 +155,9 @@ void recv_msg() {
 #endif
     } else if (textMessage.indexOf("power inq") > 0) {
       if (livePower) {
-        send_msg("Electric power is available", number);
+        send_msg("Electric power is available. " + String(power_int) + " power interruption occured.", number);
       } else {
-        send_msg("Power interruption still on going", number);
+        send_msg("Power interruption still on going. " + String(power_int) + " power interruption occured.", number);
       }
       sprintf(str, " Power Inquiry. ");
 #ifdef debugSMS
@@ -216,16 +218,19 @@ void lcdPrint() {
   }else{
     if(livePower){
       if(!newSMS) sprintf(str, "Water Level  %3d", wLevel);
-      sprintf(str2, "Frequency: %2d  ", freq);
+      freqString = "Frequency " + String(freq, 3);
+      lcd.setCursor(0, 1);
+      lcd.print(freqString);
     }else{
-      if(!newSMS) sprintf(str, "    No Power    ", wLevel);
+      if(!newSMS) sprintf(str, "    No Power    ");
       sprintf(str2, "Power Int %3d   ", int(power_int));
+      lcd.setCursor(0, 1);
+      lcd.print(str2);
     }
+    lcd.setCursor(0,0);
     lcd.print(str);
-    lcd.setCursor(0, 1);
-    lcd.print(str2);
-    if(newSMS){
-      delay(2000);
+    if(millis()-prevSMS>4000){
+      newSMS = false;
     }
   }
 }
@@ -254,7 +259,7 @@ void getWlevel() {
     if(livePower){
       radioConnection = 10;
     }else{
-      radioConnection = 2;
+      radioConnection = 10;
     }
   }
 }
@@ -292,32 +297,36 @@ void action() {
 
 void powerDetection() {
   int low_time, high_time;
-  low_time = pulseIn(9, LOW);
-  high_time = pulseIn(9, HIGH);
-  Serial.println(String(low_time) + "\t" + String(high_time));
-  freq = (high_time + low_time)/273;
+  high_time = pulseIn(9, HIGH, 100000);
+  low_time = pulseIn(9, LOW, 100000);
+  freq = (high_time + low_time)/275.5;
+  freqString = String(freq,3);
+  Serial.println(freqString);
   if (low_time > 1) {
     livePower = true;
   } else {
     livePower = false;
+    digitalWrite(10, HIGH);
+    digitalWrite(12, HIGH);
   }
   if (prev_state != livePower) {
     if (!livePower) {
       Serial.println("Power Interruption Detected");
-      send_msg("Power Interruption Detected", number);
       powerInterruption();
       beep(5, 100, 50);
       digitalWrite(10, HIGH);
       digitalWrite(12, HIGH);
+      send_msg("Power Interruption Detected", number);
     } else {
       digitalWrite(10, HIGH);
       digitalWrite(12, HIGH);
-      Serial.println(" Power Resumed ");
-      send_msg("Power Resumed", number);
       sprintf(str, " Power Resumed. ");
       lcd.setCursor(0, 0);
       lcd.print(str);
-      beep(1, 1000, 10);
+      beep(1, 2000, 10);
+      Serial.println(" Power Resumed ");
+      send_msg("Power Resumed", number);
+      
       delay(5000);
       digitalWrite(socket1, !tpin1);
       digitalWrite(socket2, !tpin2);
