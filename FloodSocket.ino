@@ -189,15 +189,8 @@ void beep(int x, int t1, int t0) {
 }
 
 void calibrate() {
-  if(distance>255){
-    EEPROM.update(1, 255);
-    EEPROM.update(2, 255-distance);
-  }else{
-    EEPROM.update(1,distance);
-    EEPROM.update(2, 0);
-  }
-  delay(100);
-  compensate = EEPROM.read(1) + EEPROM.read(2);
+  EEPROM.update(1, distance);
+  compensate = EEPROM.read(1);
 }
 
 void lcdPrint() {
