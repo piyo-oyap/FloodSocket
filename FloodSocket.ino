@@ -157,6 +157,10 @@ void recv_msg() {
 #ifdef debugSMS
       Serial.println("Calibrating ultrasonic sensor");
 #endif
+    }else if (textMessage.indexOf("reset") > 0){
+      resetCounter();
+      lcd.setCursor(0, 0);
+      lcd.print("Resetting.......");
     }
   }
 
@@ -190,6 +194,7 @@ void beep(int x, int t1, int t0) {
 
 void calibrate() {
   EEPROM.update(1, distance);
+  delay(100);
   compensate = EEPROM.read(1);
 }
 
@@ -239,6 +244,7 @@ void powerInterruption() {
 void resetCounter() {
   EEPROM.update(0, 0);
   delay(100);
+  power_int = EEPROM.read(0);
 }
 
 void getWlevel() {
@@ -246,9 +252,8 @@ void getWlevel() {
     radioConnection--;
   }
   while(radio.available()) {
-    int text;
-    radio.read(&text, sizeof(text));
-    wLevel = (text - compensate);
+    radio.read(&distance, sizeof(distance));
+    wLevel = (compensate - distance);
     if(livePower){
       radioConnection = 10;
     }else{
@@ -318,5 +323,5 @@ void powerDetection() {
     }
   }
 
-  prev_state = power;
+  prev_state = livePower;
 }
