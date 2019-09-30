@@ -1,3 +1,11 @@
+#define debugRelay
+#define enSMS
+//#define mulSMS
+
+#ifdef mulSMS
+  String num1 = "+639XXXXXXXXXX", num2 = "+639XXXXXXXXX";
+#endif
+
 #include <LiquidCrystal_I2C.h>
 #include<EEPROM.h>
 #include <SPI.h>
@@ -6,9 +14,6 @@
 
 #define sim Serial1
 #define buzz 13
-
-#define debugRelay
-#define enSMS
 
 RF24 radio(7, 8); // CE, CSN
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -25,7 +30,7 @@ int distance = 0, compensate = EEPROM.read(1) + EEPROM.read(2), wLevel = 0, radi
 byte power_int = EEPROM.read(0), alert = 0, socket1 = 10, socket2  = 12, prevAlert = 0;
 const byte address[6] = "00001";
 bool power = true, prev_state = true;
-String textMessage, number = "+639503610262", freqString;
+String textMessage, number = "+639283128714", freqString;
 char str[32],str2[32];
 
 
@@ -79,6 +84,7 @@ void loop() {
   }
   
 #ifdef debugRelay
+  Serial.println(livePower);
   if (Serial.available()){
     if(Serial.read()=='a') {
       tpin1 = true;
@@ -92,6 +98,7 @@ void loop() {
       beep(3, 75, 50);
     }
   }
+  Serial.println(wLevel);
 #endif
 }
 
@@ -188,7 +195,22 @@ void send_msg(String txt, String number) {
   sim.println((char)26);
   delay(1000);
   sim.println();
-  delay(2000);
+  #ifdef mulSMS
+    sim.println("AT+CMGS=\"" + number + "\"");
+    delay(100);
+    sim.println(txt);
+    delay(100);
+    sim.println((char)26);
+    delay(1000);
+    sim.println();
+    sim.println("AT+CMGS=\"" + number + "\"");
+    delay(100);
+    sim.println(txt);
+    delay(100);
+    sim.println((char)26);
+    delay(1000);
+    sim.println();
+  #endif
   textMessage = "";
 #endif
 }
@@ -223,7 +245,7 @@ void lcdPrint() {
       lcd.print(freqString);
     }else{
       if(!newSMS) sprintf(str, "    No Power    ");
-      sprintf(str2, "Power Int %3d   ", int(power_int));
+      sprintf(str2, " Power Intr %3d ", int(power_int));
       lcd.setCursor(0, 1);
       lcd.print(str2);
     }
@@ -267,9 +289,11 @@ void getWlevel() {
 void action() {
   if (wLevel > 24) {
     alert = 3;
-  } else if (wLevel <= 24 && wLevel >= 20) {
+    digitalWrite(10, HIGH);
+    digitalWrite(12, HIGH);
+  } else if (wLevel <= 23 && wLevel >= 20) {
     alert = 2;
-  } else if (wLevel <= 18 && wLevel >= 23) {
+  } else if (wLevel <=19 && wLevel >= 15) {
     alert = 1;
   } else {
   alert = 0;
@@ -278,6 +302,7 @@ void action() {
   if(prevAlert!= alert){
     prevAlert = alert;
     smsBool = true;
+    beep(5, 500, 1000);
   }else{
     smsBool = false;
   }
@@ -306,8 +331,8 @@ void powerDetection() {
     livePower = true;
   } else {
     livePower = false;
-    digitalWrite(10, HIGH);
-    digitalWrite(12, HIGH);
+    digitalWrite(socket1, HIGH);
+    digitalWrite(socket2, HIGH);
   }
   if (prev_state != livePower) {
     if (!livePower) {
